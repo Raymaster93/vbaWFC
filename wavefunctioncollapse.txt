@@ -31,6 +31,7 @@ Dim drawnCells As New Collection
 
 '************ TODO *******************
 	consider forcing all arrays to be 1-indexed.
+	add a way to randomize the start x and y and still have a seed functionality
 
 '*************************************
 
@@ -39,6 +40,7 @@ Sub main()
 'user editible global variables
     size = 8            'size of the grid length and width. It will be square
     seed = -2           'seed needs to be negative. Seed only affects which starting tile is drawn. setting "seed = -1*Rnd" will truly randommize it.
+    			'but it will still start on a diagonal (i.e. startX and startY use the same random seed number, so X and Y will be equal)
     
 'user editible global variables that you should only change if you're changing the tile images library.
     resol = 3           'This is the resolution of the tile images. It has to be odd for now so that there is an easy to identify centre pixel.  
