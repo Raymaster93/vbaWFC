@@ -20,25 +20,32 @@ Dim seed As Double
 Dim setupOnly As Boolean
 Dim drawnCells As New Collection
 
-
+'beware the changes from 0-index to 1-index of vba Arrays and Collections respectively
 'canvas contains grid of size "size" x "size"
 'canvas has a resolution of "resol" x "size"
-'tileImages are tile types
+'tileImages are the tile types in the library
 'tiles of a type go onto a grid
 'tiles and grid have a resolution "resol"
-'grid is a way to reference the correct place on the canvas
+'grid is a way to reference the correct place on the canvas (1-indexed)
 'cells are the properties of each cell in that grid
+
+'************ TODO *******************
+	consider forcing all arrays to be 1-indexed.
+
+'*************************************
 
 Sub main()
 
 'user editible global variables
     size = 8            'size of the grid length and width. It will be square
-    resol = 3           'the resolution has to be odd for now
+    seed = -2           'seed needs to be negative. Seed only affects which starting tile is drawn. setting "seed = -1*Rnd" will truly randommize it.
+    
+'user editible global variables that you should only change if you're changing the tile images library.
+    resol = 3           'This is the resolution of the tile images. It has to be odd for now so that there is an easy to identify centre pixel.  
     maxEntropy = 5      'this should be manually set based on the amount of tiles and their rotations
-    seed = -2           'seed needs to be negative
     
 'computed global variables
-    Set wb = ActiveWorkbook
+    Set wb = ThisWorkbook
     Set ws = wb.ActiveSheet
     
 'local variables
@@ -96,7 +103,7 @@ Do
         ElseIf entropySum(i) < entropySum(i + 1) Then
             stopIndex = i
             Randomize
-            indexP = (stopIndex * Rnd(-1234))
+            indexP = (stopIndex * Rnd)
             index = entropyIndex(indexP)
             indexX = (index - 1) Mod size + 1
             indexY = WorksheetFunction.Ceiling((index - indexX) / size, 1) + 1
@@ -509,5 +516,3 @@ tileImages.Add tile
 tileImages.Add tile
 
 End Sub
-
-
