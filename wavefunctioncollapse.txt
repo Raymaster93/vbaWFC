@@ -1,0 +1,513 @@
+Option Explicit
+Dim canvas As Range
+Dim border As Range
+Dim size As Integer
+Dim resol As Integer
+Dim width As Integer
+Dim height As Integer
+Dim wb As Workbook
+Dim ws As Worksheet
+Dim tileImages As New Collection
+Dim tiles() As Variant
+Dim grid() As Variant
+Dim cellCollapsed() As Boolean
+Dim gridOptions As Variant  'grid options is the array of all the cells' option arrays
+Dim cellOptions() As Integer
+Dim cellUpdated As New Collection
+Dim entropy As New Collection
+Dim maxEntropy
+Dim seed As Double
+Dim setupOnly As Boolean
+Dim drawnCells As New Collection
+
+
+'canvas contains grid of size "size" x "size"
+'canvas has a resolution of "resol" x "size"
+'tileImages are tile types
+'tiles of a type go onto a grid
+'tiles and grid have a resolution "resol"
+'grid is a way to reference the correct place on the canvas
+'cells are the properties of each cell in that grid
+
+Sub main()
+
+'user editible global variables
+    size = 8            'size of the grid length and width. It will be square
+    resol = 3           'the resolution has to be odd for now
+    maxEntropy = 5      'this should be manually set based on the amount of tiles and their rotations
+    seed = -2           'seed needs to be negative
+    
+'computed global variables
+    Set wb = ActiveWorkbook
+    Set ws = wb.ActiveSheet
+    
+'local variables
+    Dim i As Integer
+    Dim j As Integer
+    Dim startX As Integer
+    Dim startY As Integer
+    Dim startTile As Integer
+    Dim myTile As Integer
+    Dim cell
+    Dim entropySum()
+    Dim entropyIndex()
+    Dim index As Integer
+    Dim indexX As Integer
+    Dim indexY As Integer
+    Dim indexP As Integer
+    Dim stopIndex As Integer
+    Dim itter As Integer
+    
+    Randomize
+    imageLibrary
+    setupCanvas
+        
+    startX = Round(Rnd(seed) * size)
+    startY = Round(Rnd(seed) * size)
+    startTile = Round(Rnd(seed) * 4)
+    myTile = collapseCell(startX + (startY - 1) * size)
+    updateNeighbours startX, startY, myTile
+    itter = 0
+    'check entropy, randomly collapse one of the lowest entropy grids.
+Do
+    ReDim entropySum(cellUpdated.Count - 1)
+    ReDim entropyIndex(cellUpdated.Count - 1)
+    
+    For i = 1 To cellUpdated.Count
+        cell = cellUpdated(i)
+        'check the entropy, i.e. the sum of options
+        entropySum(i - 1) = WorksheetFunction.Sum(gridOptions(cell - 1))
+        entropyIndex(i - 1) = cell
+    Next i
+    
+    Call sort(entropySum, entropyIndex)
+        
+    For i = 0 To UBound(entropySum)
+        If entropySum(i) = WorksheetFunction.Max(entropySum) And i = 0 Then
+            'they're all the same so randomly pick any
+            Randomize
+            indexP = Int((UBound(entropySum)) * Rnd) + 1
+            index = entropyIndex(indexP)
+            indexX = (index - 1) Mod size + 1
+            indexY = WorksheetFunction.Ceiling((index - indexX) / size, 1) + 1
+            myTile = collapseCell(index)
+            Call updateNeighbours(indexX, indexY, myTile)
+            Exit For
+        ElseIf entropySum(i) < entropySum(i + 1) Then
+            stopIndex = i
+            Randomize
+            indexP = (stopIndex * Rnd(-1234))
+            index = entropyIndex(indexP)
+            indexX = (index - 1) Mod size + 1
+            indexY = WorksheetFunction.Ceiling((index - indexX) / size, 1) + 1
+            myTile = collapseCell(index)
+            Call updateNeighbours(indexX, indexY, myTile)
+            Exit For
+        End If
+    Next i
+    itter = itter + 1
+    If drawnCells.Count >= size * size Or itter = size * size * 2 Then
+        Exit Do
+    End If
+Loop
+
+    
+End Sub
+
+Sub setupCanvas()
+
+    Dim i As Integer
+    Dim j As Integer
+    
+    'define all possible tiles, the blank tile and 4 rotations of tile 2
+    ReDim tiles(4)
+    ReDim grid(size * size - 1)
+    ReDim cellOptions(maxEntropy - 1)
+    ReDim cellCollapsed(size * size - 1)
+    ReDim gridOptions(size * size - 1)
+    
+    width = size * resol
+    height = size * resol
+    
+    Set canvas = ws.Range(Cells(2, 2), Cells(width + 1, height + 1))
+    Set border = ws.Range(Cells(1, 1), Cells(width + 2, height + 2))
+    
+    tiles(0) = tileImages(1)
+    tiles(1) = tileImages(2)
+    For i = 2 To 4
+        tiles(i) = rotateTile(tileImages(2), i - 1)
+    Next i
+    
+    For j = 0 To UBound(grid)
+        For i = 0 To maxEntropy - 1
+            cellOptions(i) = 1
+        Next i
+        gridOptions(j) = cellOptions
+        cellCollapsed(j) = False
+    Next j
+    
+    border.Select
+    Selection.ColumnWidth = 2.14
+    With Selection.Interior
+        .Pattern = xlNone
+        .TintAndShade = 0
+        .PatternTintAndShade = 0
+    End With
+    makeThickOutsideBorder canvas
+    makeThickOutsideBorder border
+    setupOnly = True
+    For j = 1 To size
+        For i = 1 To size
+           Call drawTile(i, j, 0)
+        Next i
+    Next j
+    setupOnly = False
+End Sub
+
+Function test(xt As Integer, yt As Integer) As Boolean
+
+    Dim index As Integer
+    Dim i As Integer
+    Dim j As Integer
+    index = (yt - 1) * size + xt
+'
+'    If cellCollapsed(index) Then
+'        For i = 0 To maxEntropy - 1
+'            If gridOptions(index)(i) = 1 Then
+'                drawTile xt, yt, i
+'                Exit For
+'            End If
+'        Next i
+'    End If
+    test = cellCollapsed(index - 1)
+
+End Function
+
+Function updateNeighbours(xnu, ynu, myTile)
+    
+    Dim NU
+    Dim NR
+    Dim ND
+    Dim NL
+    Dim i, j
+    Dim update As Boolean
+    
+    i = 0
+    j = 0
+    'test neighbours. if the are collapsed, then ignore
+    'otherwise, update the options in that cell by checking edge pixels
+    update = False
+    If ynu > 1 Then
+        If (Not test((xnu + 0), (ynu - 1))) Then
+            'check up neighbour (NU)
+            NU = ((ynu - 1) - 1) * size + (xnu + 0)
+            For j = 0 To resol - 1
+                For i = 0 To maxEntropy - 1
+                    If gridOptions(NU - 1)(i) = 1 Then
+                        If tiles(i)((resol * resol) - resol + j) <> tiles(myTile)(j) Then
+                            gridOptions(NU - 1)(i) = 0
+                            update = True
+                        End If
+                    End If
+                Next i
+            Next j
+        End If
+    End If
+    If update Then
+        cellUpdated.Add NU
+    End If
+    i = 0
+    j = 0
+    update = False
+    If xnu < size Then
+        If (Not test((xnu + 1), (ynu + 0))) Then
+            'check right neighbour (NR)
+            NR = ((ynu + 0) - 1) * size + (xnu + 1)
+            For j = 1 To resol
+                For i = 0 To maxEntropy - 1
+                    If gridOptions(NR - 1)(i) = 1 Then
+                        If tiles(i)(j * resol - 1 - (resol - 1)) <> tiles(myTile)(j * resol - 1) Then
+                            gridOptions(NR - 1)(i) = 0
+                            update = True
+                        End If
+                    End If
+                Next i
+            Next j
+        End If
+    End If
+    If update Then
+        cellUpdated.Add NR
+    End If
+    i = 0
+    j = 0
+    update = False
+    If ynu < size Then
+        If (Not test((xnu + 0), (ynu + 1))) Then
+            'check down neighbour (ND)
+            ND = ((ynu + 1) - 1) * size + (xnu + 0)
+            For j = 0 To resol - 1
+                For i = 0 To maxEntropy - 1
+                    If gridOptions(ND - 1)(i) = 1 Then
+                        If tiles(i)(j) <> tiles(myTile)((resol * resol) - resol + j) Then
+                            gridOptions(ND - 1)(i) = 0
+                            update = True
+                        End If
+                    End If
+                Next i
+            Next j
+        End If
+    End If
+    If update Then
+        cellUpdated.Add ND
+    End If
+    i = 0
+    j = 0
+    update = False
+    If xnu > 1 Then
+        If (Not test((xnu - 1), (ynu + 0))) Then
+            'check left neighbour (NL)
+            NL = ((ynu + 0) - 1) * size + (xnu - 1)
+            For j = 1 To resol
+                For i = 0 To maxEntropy - 1
+                    If gridOptions(NL - 1)(i) = 1 Then
+                        If tiles(i)(j * resol - 1) <> tiles(myTile)(j * resol - 1 - (resol - 1)) Then
+                            gridOptions(NL - 1)(i) = 0
+                            update = True
+                        End If
+                    End If
+                Next i
+            Next j
+        End If
+    End If
+    If update Then
+        cellUpdated.Add NL
+    End If
+
+
+End Function
+
+
+Function sort(primary, secondary)
+    'sort 2 arrays in the numerical order of the primary array
+    
+    Dim tempP()
+    Dim tempS()
+    Dim i, j
+    
+    
+    ReDim tempP(UBound(primary))
+    ReDim tempS(UBound(secondary))
+    
+    For j = 0 To UBound(primary) - 1
+        For i = j + 1 To UBound(primary)
+            If primary(i) < primary(j) Then
+                tempP(i) = primary(i)
+                tempS(i) = secondary(i)
+                
+                primary(i) = primary(j)
+                secondary(i) = secondary(j)
+                
+                primary(j) = tempP(i)
+                secondary(j) = tempS(i)
+            End If
+        Next i
+    Next j
+    
+End Function
+
+
+
+Function collapseCell(index) As Integer
+    
+    Dim testList As New Collection
+    Dim pick As Integer
+    Dim i As Integer
+    Dim opt As Variant
+    Dim x As Integer
+    Dim y As Integer
+    
+    x = (index - 1) Mod size + 1
+    y = WorksheetFunction.Ceiling((index - x) / size, 1) + 1
+
+    cellCollapsed(index - 1) = True
+    
+    For i = 0 To maxEntropy - 1
+        opt = gridOptions(index - 1)(i)
+        If opt = 1 Then
+            testList.Add i
+        End If
+    Next i
+        pick = testList(Int(testList.Count * Rnd) + 1)
+    For i = 0 To maxEntropy - 1
+        If i <> pick Then
+            gridOptions(index - 1)(i) = 0
+        End If
+    Next i
+    
+    'remove the collapsed cell from the updated array if it was there
+    For i = cellUpdated.Count To 1 Step -1
+        If cellUpdated(i) = index Then
+            cellUpdated.Remove i
+        End If
+    Next i
+    
+    collapseCell = pick
+    drawTile x, y, pick
+    
+
+End Function
+
+
+Function drawTile(xc As Integer, yc As Integer, tile As Integer)
+
+    Dim centre As Range
+    Dim grid As Range
+    Dim i As Integer
+    Dim j As Integer
+    Dim x As Integer
+    Dim y As Integer
+    Dim dtile As Variant
+    Dim colour
+    
+    If Not setupOnly Then
+        drawnCells.Add tile
+        colour = 10498160
+    Else
+        colour = 16772300
+    End If
+    
+    dtile = tiles(tile)
+
+    x = resol * (xc - 1) + Application.WorksheetFunction.Ceiling(resol / 2, 1)
+    y = resol * (yc - 1) + Application.WorksheetFunction.Ceiling(resol / 2, 1)
+    
+    Set centre = canvas.Cells(y, x)
+    Set grid = Range(canvas.Cells(y - WorksheetFunction.Floor(resol / 2, 1), x - WorksheetFunction.Floor(resol / 2, 1)), _
+        canvas.Cells(y + WorksheetFunction.Floor(resol / 2, 1), x + WorksheetFunction.Floor(resol / 2, 1)))
+    grid.Select
+    
+    makeThickOutsideBorder grid
+
+    
+    For i = 0 To UBound(dtile)
+        If dtile(i) = 1 And Not setupOnly Then
+           Call colourCell(grid.Cells(Application.WorksheetFunction.Floor(i / resol, 1) + 1, i Mod resol + 1), colour)
+        ElseIf dtile(i) = 0 And Not setupOnly Then
+            Call colourCell(grid.Cells(Application.WorksheetFunction.Floor(i / resol, 1) + 1, i Mod resol + 1), 16777215)
+        ElseIf setupOnly Then
+            Call colourCell(grid.Cells(Application.WorksheetFunction.Floor(i / resol, 1) + 1, i Mod resol + 1), colour)
+        End If
+    Next i
+            
+    
+End Function
+
+Function rotateTile(rtile As Variant, rot As Integer) As Variant
+
+Dim temp() As Variant
+Dim indexShift
+Dim i As Integer
+Dim j As Integer
+ReDim temp(UBound(rtile))
+
+If rot = 0 Then
+    Exit Function
+End If
+
+For j = 1 To rot
+    'save the enitre array
+    For i = 0 To UBound(rtile)
+        temp(i) = rtile(i)
+    Next i
+    For i = 0 To UBound(rtile)
+        'tile(i) goes to tile(i+resol-1)
+        indexShift = ((i + 1) * (resol - 1) - Application.WorksheetFunction.Floor(i / resol, 1))
+        rtile((i + indexShift) Mod 9) = temp(i)
+    Next i
+Next j
+rotateTile = rtile
+End Function
+
+Sub makeThickOutsideBorder(sel As Range)
+' make a thick border around the outside of a selection
+'
+    sel.Select
+    
+   Selection.Borders(xlDiagonalDown).LineStyle = xlNone
+    Selection.Borders(xlDiagonalUp).LineStyle = xlNone
+    With Selection.Borders(xlEdgeLeft)
+        .LineStyle = xlContinuous
+        .ColorIndex = 0
+        .TintAndShade = 0
+        .Weight = xlMedium
+    End With
+    With Selection.Borders(xlEdgeTop)
+        .LineStyle = xlContinuous
+        .ColorIndex = 0
+        .TintAndShade = 0
+        .Weight = xlMedium
+    End With
+    With Selection.Borders(xlEdgeBottom)
+        .LineStyle = xlContinuous
+        .ColorIndex = 0
+        .TintAndShade = 0
+        .Weight = xlMedium
+    End With
+    With Selection.Borders(xlEdgeRight)
+        .LineStyle = xlContinuous
+        .ColorIndex = 0
+        .TintAndShade = 0
+        .Weight = xlMedium
+    End With
+    Selection.Borders(xlInsideVertical).LineStyle = xlNone
+    Selection.Borders(xlInsideHorizontal).LineStyle = xlNone
+End Sub
+
+Sub colourCell(sel, colour)
+    With sel.Interior
+        .Pattern = xlSolid
+        .PatternColorIndex = xlAutomatic
+        .Color = colour
+        .TintAndShade = 0
+        .PatternTintAndShade = 0
+    End With
+End Sub
+
+
+
+Sub imageLibrary()
+
+'makes the tiles and saves them in the golab tiles variable
+
+
+Dim tile(8) As Integer
+Dim i, n
+
+'clears the library incase...
+Set tileImages = New Collection
+
+'tile 1: Blank
+    For i = 0 To 8
+        tile(i) = 0
+    Next i
+tileImages.Add tile
+ 
+ 'tile 2: Up
+    'top row
+    tile(0) = 0
+    tile(1) = 1
+    tile(2) = 0
+    'middle row
+    tile(3) = 1
+    tile(4) = 1
+    tile(5) = 1
+    'bottom row
+    tile(6) = 0
+    tile(7) = 0
+    tile(8) = 0
+    
+tileImages.Add tile
+
+End Sub
+
+
