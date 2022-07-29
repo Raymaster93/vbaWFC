@@ -30,8 +30,8 @@ Dim drawnCells As New Collection
 'cells are the properties of each cell in that grid
 
 '************ TODO *******************
-	consider forcing all arrays to be 1-indexed.
-	add a way to randomize the start x and y and still have a seed functionality
+	'consider forcing all arrays to be 1-indexed.
+	'add a way to randomize the start x and y and still have a seed functionality
 
 '*************************************
 
