@@ -66,6 +66,10 @@ Sub main()
     Dim indexP As Integer
     Dim stopIndex As Integer
     Dim itter As Integer
+    Set drawnCells = Nothing
+    Set cellUpdated = Nothing
+    Set entropy = Nothing
+    Set tileImages = Nothing
     
     Randomize
     imageLibrary
